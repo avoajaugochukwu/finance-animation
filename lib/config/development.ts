@@ -6,6 +6,10 @@ export const IS_DEVELOPMENT = process.env.NODE_ENV === "development";
 // Scene duration for video production (in seconds)
 export const SCENE_DURATION_SECONDS = 4; // Faster cuts for cynical pacing
 
+// Maximum scenes per chunk for reliable GPT-4o scene generation
+// GPT-4o handles ~25 scenes reliably per request; more causes truncation
+export const MAX_SCENES_PER_CHUNK = 25;
+
 // Mock data generators
 export const mockTopic: Topic = {
   id: "mock-topic-money-1",
@@ -101,19 +105,7 @@ export const mockCharacters: Character[] = [
   {
     id: "character_1",
     name: "Main Character",
-    description: "male", // Simple description - API will handle the styling
-    is_approved: false,
-  },
-  {
-    id: "character_2",
-    name: "Friend",
-    description: "female",
-    is_approved: false,
-  },
-  {
-    id: "character_3",
-    name: "Money Plant",
-    description: "potted plant with dollar sign leaves",
+    description: "male",
     is_approved: false,
   },
 ];

@@ -466,7 +466,7 @@ RADICAL MINIMALISM RULES:
 
 LAYOUT TYPES (6 options - assign one per scene):
 
-1. "character" - Just a character with expression/pose. Max looking smug. Mia facepalming. No props.
+1. "character" - Just a character with expression/pose. Character looking smug or facepalming. No props.
 
 2. "object" - Single symbolic object. Trophy. Empty wallet. Phone screen. One thing only.
 
@@ -483,7 +483,7 @@ LAYOUT TYPES (6 options - assign one per scene):
 CYNICAL POP COLOR PALETTE:
 
 MANDATORY COLORS (use exact hex values):
-- Character skin: Peach #FFDBAC for Max/Mia heads and hands
+- Character skin: Peach #FFDBAC for character heads and hands
 - Success/Money/Charts UP: Market Green #00AD43
 - Failure/Debt/Charts DOWN: Danger Red #FF0000
 - Trophies/Achievements: Sarky Gold #FFD700
@@ -675,7 +675,7 @@ ${script}
 Break this into ${totalScenes} scenes. For EACH scene, identify:
 
 1. **FOCAL ELEMENT**: The ONE thing to show. Not three things. ONE.
-   - If introducing a character: just the character
+   - If introducing a character: ONLY use characters explicitly named in the script. Do not introduce secondary characters if they are not in the text.
    - If showing success: ONE symbol (trophy, green chart, thumbs up)
    - If showing failure: ONE symbol (red chart, empty wallet, facepalm)
 
@@ -710,6 +710,7 @@ Break this into ${totalScenes} scenes. For EACH scene, identify:
 - SARCASM comes from CONTRAST between scenes, not clutter within scenes
 - Charts should be SIMPLE: one line, one direction (up OR down, never both)
 - NO text labels inside the image - let composition speak
+- STRICT CHARACTER ADHERENCE: Only use characters that are explicitly mentioned in the input script. Do not add default characters like "Mia" unless she is part of the story provided.
 
 ### OUTPUT FORMAT (JSON):
 {
