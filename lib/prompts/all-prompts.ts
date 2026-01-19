@@ -580,7 +580,10 @@ export const IMAGE_GENERATION_PROMPT = (
   Style: Cynical minimalist doodle. Hand-drawn with felt-tip marker on paper. Low-fidelity line art. Pure white (#FFFFFF) background. NO shading, NO 3D effects, NO gradients. High-contrast black lines. One single muted color as lazy highlight (optional). Add hand-written labels and arrows if mentioned. Sketchy, imperfect lines as if drawn quickly on a whiteboard. 16:9 aspect ratio.`;
 
 // ============================================================================
-// NARRATIVE ANALYSIS PROMPT (Two-Stage Scene Intelligence)
+// DEPRECATED: NARRATIVE ANALYSIS PROMPT (replaced by StyleGuide API)
+// The two-stage approach now uses:
+// - Stage 1: StyleGuide (character manifest, color palette, visual style)
+// - Stage 2: Linear scene translator (strict sequential processing)
 // ============================================================================
 
 // ============================================================================
@@ -665,6 +668,7 @@ ${inputText}
 
 Return ONLY the rewritten text. No commentary, no explanation, no meta-discussion. Just the relatable rewrite ready for TTS.`;
 
+/** @deprecated Use the /api/analyze/narrative StyleGuide API instead */
 export const NARRATIVE_ANALYSIS_PROMPT = (script: string, totalScenes: number) => `
 You are a Visual Story Architect. Your job is to analyze a script and create a scene-by-scene brief that captures the NARRATIVE FLOW, not just literal content.
 

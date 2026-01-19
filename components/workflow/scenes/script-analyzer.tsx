@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { FileSearch, Sparkles } from 'lucide-react';
 import { SCENE_DURATION_SECONDS } from '@/lib/config/development';
 import { countWords } from '@/lib/utils/word-count';
-import { NarrativeContext } from '@/lib/types';
+import { StyleGuide } from '@/lib/types';
 
 export function ScriptAnalyzer() {
   const {
@@ -22,7 +22,7 @@ export function ScriptAnalyzer() {
   } = useSessionStore();
 
   const hasAnalyzedRef = useRef(false);
-  const [analysisPhase, setAnalysisPhase] = useState<'narrative' | 'scenes'>('narrative');
+  const [analysisPhase, setAnalysisPhase] = useState<'style' | 'scenes'>('style');
 
   const analyzeScript = async () => {
     if (!script) {
@@ -40,9 +40,9 @@ export function ScriptAnalyzer() {
     setAssetApproval({ phase: 'analyzing' });
 
     try {
-      // Stage 1: Get narrative context (story arc, scene briefs)
-      setAnalysisPhase('narrative');
-      const narrativeRes = await fetch('/api/analyze/narrative', {
+      // Stage 1: Get style guide (character manifest, color palette, visual style)
+      setAnalysisPhase('style');
+      const styleRes = await fetch('/api/analyze/narrative', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -50,14 +50,14 @@ export function ScriptAnalyzer() {
         body: JSON.stringify({ script: scriptContent }),
       });
 
-      if (!narrativeRes.ok) {
-        throw new Error('Failed to analyze narrative');
+      if (!styleRes.ok) {
+        throw new Error('Failed to generate style guide');
       }
 
-      const narrativeContext: NarrativeContext = await narrativeRes.json();
-      console.log('[ScriptAnalyzer] Narrative context:', narrativeContext.story_arc);
+      const styleGuide: StyleGuide = await styleRes.json();
+      console.log('[ScriptAnalyzer] Style guide:', styleGuide.global_visual_style, `(${styleGuide.character_manifest.length} characters)`);
 
-      // Stage 2: Generate scenes with narrative context
+      // Stage 2: Generate scenes with style guide (linear translator mode)
       setAnalysisPhase('scenes');
       const scenesRes = await fetch('/api/analyze/script', {
         method: 'POST',
@@ -67,7 +67,7 @@ export function ScriptAnalyzer() {
         body: JSON.stringify({
           script: scriptContent,
           outline: outline,
-          narrativeContext: narrativeContext,
+          styleGuide: styleGuide,
         }),
       });
 
@@ -97,18 +97,18 @@ export function ScriptAnalyzer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Calculate expected scenes based on actual script word count
+  // Calculate expected scenes based on ~12 words per scene (linear translator mode)
+  const WORDS_PER_SCENE = 12;
   const scriptContent = script?.polished_content || script?.content || '';
   const wordCount = countWords(scriptContent);
-  const estimatedDurationMinutes = Math.ceil(wordCount / 150);
-  const expectedScenes = Math.round((estimatedDurationMinutes * 60) / SCENE_DURATION_SECONDS);
+  const expectedScenes = Math.ceil(wordCount / WORDS_PER_SCENE);
 
   return (
     <Card className="p-8">
       <div className="text-center space-y-4">
         <div className="flex justify-center">
           <div className="relative">
-            {analysisPhase === 'narrative' ? (
+            {analysisPhase === 'style' ? (
               <Sparkles className="h-16 w-16 text-purple-500" />
             ) : (
               <FileSearch className="h-16 w-16 text-blue-500" />
@@ -122,12 +122,12 @@ export function ScriptAnalyzer() {
 
         <div className="space-y-2">
           <h3 className="text-xl font-semibold">
-            {analysisPhase === 'narrative' ? 'Understanding Story Arc' : 'Creating Visual Scenes'}
+            {analysisPhase === 'style' ? 'Extracting Characters & Style' : 'Creating Linear Scenes'}
           </h3>
           <p className="text-gray-600">
-            {analysisPhase === 'narrative'
-              ? `Analyzing narrative flow of your ${wordCount}-word script...`
-              : `Breaking into ~${expectedScenes} minimalist scenes...`}
+            {analysisPhase === 'style'
+              ? `Building character manifest for your ${wordCount}-word script...`
+              : `Translating into ~${expectedScenes} sequential scenes...`}
           </p>
         </div>
 
@@ -135,21 +135,21 @@ export function ScriptAnalyzer() {
 
         <div className="space-y-2 text-sm text-gray-500">
           <div className="flex items-center justify-center gap-2">
-            <div className={`w-4 h-4 border-2 rounded-full ${analysisPhase === 'narrative' ? 'border-purple-500 animate-pulse' : 'border-green-500 bg-green-500'}`}></div>
+            <div className={`w-4 h-4 border-2 rounded-full ${analysisPhase === 'style' ? 'border-purple-500 animate-pulse' : 'border-green-500 bg-green-500'}`}></div>
             <span className={analysisPhase === 'scenes' ? 'text-green-600' : ''}>
-              Stage 1: Analyzing story arc & emotional beats
+              Stage 1: Extracting characters & visual style
             </span>
           </div>
           <div className="flex items-center justify-center gap-2">
             <div className={`w-4 h-4 border-2 rounded-full ${analysisPhase === 'scenes' ? 'border-blue-500 animate-pulse' : 'border-gray-300'}`}></div>
-            <span className={analysisPhase === 'narrative' ? 'text-gray-400' : ''}>
-              Stage 2: Creating {expectedScenes} minimalist scenes ({SCENE_DURATION_SECONDS}s each)
+            <span className={analysisPhase === 'style' ? 'text-gray-400' : ''}>
+              Stage 2: Linear translation into {expectedScenes} scenes ({SCENE_DURATION_SECONDS}s each)
             </span>
           </div>
         </div>
 
         <p className="text-xs text-gray-400 mt-4">
-          Using radical minimalism: ONE focal element per scene
+          Linear translator mode: Scene 1 = first words, Scene 2 = next words, etc.
         </p>
       </div>
     </Card>

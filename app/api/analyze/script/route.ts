@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { Scene, Character, NarrativeContext, SceneBrief } from '@/lib/types';
-import { SCENE_DURATION_SECONDS, MAX_SCENES_PER_CHUNK } from '@/lib/config/development';
+import { Scene, Character, StyleGuide, CharacterManifest } from '@/lib/types';
+import { MAX_SCENES_PER_CHUNK } from '@/lib/config/development';
 import { countWords } from '@/lib/utils/word-count';
+
+// Constants for linear scene generation
+const WORDS_PER_SCENE = 12; // ~10-15 words per scene for 4s duration
 
 interface RawCharacter {
   id: string;
@@ -24,15 +27,74 @@ interface ChunkResult {
   scenes: Scene[];
 }
 
-// Build the system prompt for scene generation
+// Build the system prompt for linear scene generation
 function buildSystemPrompt(
   chunkSceneCount: number,
-  sceneBriefsContext: string,
-  visualMetaphors: string[]
+  styleGuide: StyleGuide | null,
+  startSceneNumber: number
 ): string {
-  return `You are a Lead Concept Artist for a cynical explainer YouTube channel (Casually Explained / Sam O'Nella style). Your job is to transform a sardonic script into RADICALLY MINIMALIST visual scenes using the "Cynical Pop" aesthetic.
+  // Build character manifest context if available
+  const characterContext = styleGuide?.character_manifest?.length
+    ? `
+    // --- CHARACTER MANIFEST (Use these EXACT descriptions) ---
+    ${styleGuide.character_manifest.map((char: CharacterManifest) =>
+      `${char.name} (${char.id}): ${char.visual_description}
+       Personality: ${char.personality_traits.join(', ')}${char.signature_pose ? `\n       Default pose: ${char.signature_pose}` : ''}`
+    ).join('\n    ')}
 
-    ${sceneBriefsContext}
+    IMPORTANT: When a character appears in a scene, use EXACTLY the visual_description above.
+    `
+    : '';
+
+  // Build color palette context if available
+  const colorContext = styleGuide?.color_palette
+    ? `
+    // --- COLOR PALETTE ---
+    - Success/Positive: ${styleGuide.color_palette.success_color}
+    - Failure/Negative: ${styleGuide.color_palette.failure_color}
+    - Neutral colors: ${styleGuide.color_palette.neutral_colors.join(', ')}
+    - Usage: ${styleGuide.color_palette.usage_guidance}
+    `
+    : `
+    // --- DEFAULT COLOR PALETTE ---
+    - Success/Charts UP: Market Green #00AD43
+    - Failure/Charts DOWN: Danger Red #FF0000
+    - Trophies/Achievements: Sarky Gold #FFD700
+    - Character skin: Peach #FFDBAC
+    - Background: Pure White #FFFFFF
+    `;
+
+  const visualStyle = styleGuide?.global_visual_style
+    || 'Cynical Pop doodle (felt-tip marker on white paper)';
+
+  return `You are a TRANSLATOR, not a writer. Your job is to convert script segments into visual scenes SEQUENTIALLY.
+
+    ================================================================================
+    🚨 GOLDEN RULE: STRICT LINEAR SEQUENCE 🚨
+    ================================================================================
+
+    YOU MUST PROCESS THE SCRIPT LINEARLY.
+
+    - Scene ${startSceneNumber} = the FIRST words of this text segment
+    - Scene ${startSceneNumber + 1} = the NEXT ~10-15 words after that
+    - And so on...
+
+    You are STRICTLY FORBIDDEN from:
+    ❌ Jumping ahead in the script
+    ❌ Pulling characters/events from later in the script into early scenes
+    ❌ Reordering content for "better flow"
+    ❌ Adding characters who haven't been mentioned YET in the current snippet
+
+    If a character is not mentioned in the current ~10-15 word snippet,
+    they MUST NOT appear in the visual prompt for that scene.
+
+    ================================================================================
+
+    // --- VISUAL STYLE ---
+    ${visualStyle}
+
+    ${characterContext}
+    ${colorContext}
 
     // --- RADICAL MINIMALISM (CRITICAL) ---
     **ONE FOCAL ELEMENT PER SCENE. This is non-negotiable.**
@@ -48,24 +110,15 @@ function buildSystemPrompt(
     - Let composition and color convey meaning
 
     **CHARTS ARE SIMPLE:**
-    - One line going UP (green) OR one line going DOWN (red)
+    - One line going UP (success color) OR one line going DOWN (failure color)
     - Never both in same chart
     - No axis labels, no numbers, no grid lines
 
-    // --- CYNICAL POP COLOR PALETTE ---
-    MANDATORY COLORS (use exact hex values in prompts):
-    - Character skin: Peach #FFDBAC for Max/Mia heads and hands
-    - Success/Charts UP: Market Green #00AD43
-    - Failure/Charts DOWN: Danger Red #FF0000
-    - Trophies/Achievements: Sarky Gold #FFD700
-    - Background: Pure White #FFFFFF
-    - Line art: Black
-
-    // --- CORE VISUAL STYLE ---
-    The visual style is **Cynical Pop doodle (felt-tip marker on white paper)**:
-    1.  **Characters:** Crude stick figures with peach (#FFDBAC) filled heads. Use the names provided in the script. If a character is male, use the script's name (e.g., Max); if female, use the script's name (e.g., Mia).
-    2.  **Background:** ALWAYS pure white. No exceptions.
-    3.  **Single focal point:** One element per scene. Sarcasm comes from scene SEQUENCE, not clutter.
+    // --- LIST HANDLING ---
+    If the script lists items (e.g., "Paris, London, Tokyo" or "first, second, third"):
+    - Option A: Create ONE scene showing multiple elements in the EXACT order mentioned
+    - Option B: Create separate rapid-fire scenes for each item
+    But items must ALWAYS appear in their original script order. Never reorder.
 
     // --- LAYOUT TYPES (6 options) ---
     Assign layout_type to EVERY scene:
@@ -76,72 +129,77 @@ function buildSystemPrompt(
     5. "ui" - Fake phone screen, app interface, search results. Single UI element.
     6. "diagram" - Simple chart. ONE line, ONE direction.
 
-    // --- LAYOUT REQUIREMENTS ---
-    - Mix layouts for variety
-    - For 'overlay' layouts, set external_asset_suggestion to describe what meme/image to overlay
-    - For non-overlay layouts, set external_asset_suggestion to null
-
-    // --- COLOR CONTEXT RULES ---
-    - Script mentions SUCCESS/WINNING → Use Market Green #00AD43
-    - Script mentions FAILURE/DEBT → Use Danger Red #FF0000
-    - Ironic achievements → Use Sarky Gold #FFD700
-
     // --- VISUAL PROMPT FORMAT ---
     Keep prompts SHORT (30-50 words). Example:
     ❌ BAD: "Max surrounded by flames, toy blocks labeled 'stocks', chart with arrows saying 'you fail', trophies everywhere"
-    ✅ GOOD: "Max with peach skin, smug expression, holding golden trophy. Pure white background."
+    ✅ GOOD: "Max with peach skin #FFDBAC, smug expression, holding golden trophy. Pure white background."
 
-    // --- FORBIDDEN ---
-    NO: Text labels, arrows, multiple competing elements, complex diagrams, crowded compositions.
-    YES: Single focal point, clean composition, emotional clarity through expression/pose.
-
-    ${
-      visualMetaphors.length > 0
-        ? `
-    // --- SCRIPT-SPECIFIC METAPHORS ---
-    These were suggested but simplify them to ONE focal element:
-    ${visualMetaphors.map((metaphor, idx) => `    ${idx + 1}. ${metaphor}`).join('\n')}
-    `
-        : ""
-    }
     // --- YOUR TASK ---
-    Analyze the provided script and perform the following tasks:
+    1. Split the provided script segment into EXACTLY ${chunkSceneCount} scenes
+    2. Each scene should cover approximately 10-15 words from the script
+    3. Process the text IN ORDER - scene 1 is the beginning, scene 2 is next, etc.
+    4. The script_snippet for each scene MUST be the LITERAL text from that segment
+    5. Only include characters in a scene if they are mentioned in THAT scene's snippet
 
-    1.  **Identify ONLY human characters that appear in the provided script.**
-        *   DO NOT hallucinate characters. If the script only mentions one character name, the characters list should ONLY contain that character.
-        *   DO NOT include "Mia" or any other character unless they are explicitly mentioned or perform an action in the script.
-        *   Description MUST be EXACTLY 'male' or 'female'.
-        *   DO NOT add objects, animals, or non-human entities to the characters list.
-        *   If a scene has no human characters, the characters array MUST be empty [].
+    // --- CHARACTER IDENTIFICATION ---
+    - ONLY list characters that ACTUALLY appear in the script segment
+    - If no human characters are mentioned, return an empty characters array
+    - Use the character IDs from the manifest if provided
+    - Description should match the manifest or be EXACTLY 'male' or 'female'
 
-    2.  **Break the script into exactly ${chunkSceneCount} visual scenes.**
-        *   CRITICAL: You MUST generate EXACTLY ${chunkSceneCount} scenes. Not fewer, not more.
-        *   Break down the script into small segments - approximately every 1-2 sentences should be a separate scene.
-        *   Each scene represents ~4 seconds of video content.
-
-    3.  **For EACH scene, generate a MINIMALIST visual prompt:**
-        *   ONE focal element only
-        *   Keep prompts SHORT (30-50 words)
-        *   Characters MUST have peach skin tone (#FFDBAC)
-        *   NO text labels or arrows
-        *   Every visual_prompt MUST include "pure white background"
-
-        Return a single JSON object with this exact structure:
+    Return a single JSON object:
+    {
+      "characters": [
+        { "id": "char_1", "name": "Max", "description": "male" }
+      ],
+      "scenes": [
         {
-          "characters": [
-            { "id": "character_1", "name": "Max", "description": "male" }
-          ],
-          "scenes": [
-            {
-              "scene_number": 1,
-              "script_snippet": "MUST contain the actual 1-3 sentences from the user's script for this scene.",
-              "visual_prompt": "SHORT (30-50 words). ONE focal element. Include peach skin tone (#FFDBAC) if character. Must include 'pure white background'.",
-              "layout_type": "character" | "object" | "split" | "overlay" | "ui" | "diagram",
-              "external_asset_suggestion": "Description of meme/image for overlay" | null,
-              "characters": ["character_1"]
-            }
-          ]
+          "scene_number": ${startSceneNumber},
+          "script_snippet": "The LITERAL text from this ~10-15 word segment of the script",
+          "visual_prompt": "SHORT prompt (30-50 words). ONE focal element. Must include 'pure white background'.",
+          "layout_type": "character" | "object" | "split" | "overlay" | "ui" | "diagram",
+          "external_asset_suggestion": "Description of meme/image for overlay" | null,
+          "characters": ["char_1"]
+        }
+      ]
     }`;
+}
+
+// Split script into sentence-respecting chunks
+function splitScriptIntoSegments(script: string, wordsPerSegment: number): string[] {
+  const sentences = script.match(/[^.!?]+[.!?]+/g) || [script];
+  const segments: string[] = [];
+  let currentSegment: string[] = [];
+  let currentWordCount = 0;
+
+  for (const sentence of sentences) {
+    const sentenceWords = sentence.trim().split(/\s+/);
+    const sentenceWordCount = sentenceWords.length;
+
+    // If adding this sentence would exceed our target and we have content, start new segment
+    if (currentWordCount > 0 && currentWordCount + sentenceWordCount > wordsPerSegment * 1.5) {
+      segments.push(currentSegment.join(' ').trim());
+      currentSegment = [sentence.trim()];
+      currentWordCount = sentenceWordCount;
+    } else {
+      currentSegment.push(sentence.trim());
+      currentWordCount += sentenceWordCount;
+    }
+
+    // If we've reached our target, finalize segment
+    if (currentWordCount >= wordsPerSegment) {
+      segments.push(currentSegment.join(' ').trim());
+      currentSegment = [];
+      currentWordCount = 0;
+    }
+  }
+
+  // Don't forget remaining content
+  if (currentSegment.length > 0) {
+    segments.push(currentSegment.join(' ').trim());
+  }
+
+  return segments.filter(s => s.length > 0);
 }
 
 // Generate scenes for a single chunk of the script
@@ -150,28 +208,27 @@ async function generateScenesForChunk(
   chunkScript: string,
   chunkSceneCount: number,
   startSceneNumber: number,
-  sceneBriefsContext: string,
-  visualMetaphors: string[],
+  styleGuide: StyleGuide | null,
   maxRetries: number = 2
 ): Promise<ChunkResult> {
-  const systemPrompt = buildSystemPrompt(chunkSceneCount, sceneBriefsContext, visualMetaphors);
+  const systemPrompt = buildSystemPrompt(chunkSceneCount, styleGuide, startSceneNumber);
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const retryInstruction = attempt > 0
-        ? `\n\nCRITICAL RETRY: Previous attempt returned too few scenes. You MUST generate EXACTLY ${chunkSceneCount} scenes. Break the script into smaller segments.`
+        ? `\n\n🚨 CRITICAL RETRY: Previous attempt failed. You MUST generate EXACTLY ${chunkSceneCount} scenes, starting at scene ${startSceneNumber}. Process the text LINEARLY - do not skip or reorder content.`
         : '';
 
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt + retryInstruction },
-          { role: 'user', content: chunkScript }
+          { role: 'user', content: `SCRIPT SEGMENT TO TRANSLATE (process in order, scene ${startSceneNumber} onwards):\n\n${chunkScript}` }
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.7,
+        temperature: 0.5, // Lower temperature for more consistent sequential processing
         max_tokens: 16384,
       });
 
@@ -184,7 +241,12 @@ async function generateScenesForChunk(
         is_approved: false
       }));
 
-      const scenes: Scene[] = (analysis.scenes || []).map((scene: RawScene, idx: number) => ({
+      // Sort scenes by scene_number from GPT before mapping to ensure correct order
+      const rawScenes = (analysis.scenes || []).sort(
+        (a: RawScene, b: RawScene) => a.scene_number - b.scene_number
+      );
+
+      const scenes: Scene[] = rawScenes.map((scene: RawScene, idx: number) => ({
         scene_number: startSceneNumber + idx,
         script_snippet: scene.script_snippet,
         visual_prompt: scene.visual_prompt,
@@ -223,7 +285,7 @@ async function generateScenesForChunk(
 
 export async function POST(request: NextRequest) {
   try {
-    const { script, outline, narrativeContext } = await request.json();
+    const { script, styleGuide } = await request.json();
 
     if (!script) {
       return NextResponse.json(
@@ -232,48 +294,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Extract visual metaphor ideas from outline if provided
-    const visualMetaphors: string[] = [];
-    if (outline?.acts) {
-      for (const act of outline.acts) {
-        for (const section of act.sections || []) {
-          if (section.visual_metaphor_idea) {
-            visualMetaphors.push(section.visual_metaphor_idea);
-          }
-        }
-      }
-    }
-
-    // Calculate number of scenes based on actual script length
-    // Use 150 words per minute as average narration speed
+    // Calculate number of scenes based on ~10-15 words per scene
     const wordCount = countWords(script);
-    const estimatedDurationMinutes = Math.ceil(wordCount / 150);
-    const totalScenes = Math.round((estimatedDurationMinutes * 60) / SCENE_DURATION_SECONDS);
+    const totalScenes = Math.ceil(wordCount / WORDS_PER_SCENE);
 
-    console.log(`[Scene Analysis] Script: ${wordCount} words, ${totalScenes} scenes expected`);
-    if (narrativeContext) {
-      console.log(`[Scene Analysis] Using narrative context with ${narrativeContext.scene_briefs?.length || 0} scene briefs`);
+    console.log(`[Scene Analysis] Script: ${wordCount} words, ${totalScenes} scenes expected (~${WORDS_PER_SCENE} words/scene)`);
+    if (styleGuide) {
+      console.log(`[Scene Analysis] Using style guide with ${styleGuide.character_manifest?.length || 0} characters`);
     }
 
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY || '',
     });
-
-    // Build context from narrative analysis if available
-    const sceneBriefsContext = (narrativeContext as NarrativeContext)?.scene_briefs
-      ? `
-    // --- NARRATIVE CONTEXT (from pre-analysis) ---
-    Story Arc: ${(narrativeContext as NarrativeContext).story_arc}
-    Key Themes: ${(narrativeContext as NarrativeContext).key_themes?.join(', ')}
-
-    SCENE BRIEFS - Follow these focal elements for each scene:
-    ${(narrativeContext as NarrativeContext).scene_briefs.map((b: SceneBrief) =>
-      `Scene ${b.scene_number}: "${b.focal_element}" (${b.emotional_beat}) - Layout: ${b.layout_type}${b.overlay_suggestion ? ` - Overlay: ${b.overlay_suggestion}` : ''}`
-    ).join('\n    ')}
-
-    IMPORTANT: Use the focal elements above as your guide. Each scene should have ONE focal element as specified.
-    `
-      : '';
 
     // Determine if chunking is needed
     const chunks = Math.ceil(totalScenes / MAX_SCENES_PER_CHUNK);
@@ -282,52 +314,26 @@ export async function POST(request: NextRequest) {
       // Chunked processing for long scripts
       console.log(`[Scene Analysis] Processing in ${chunks} chunks (${MAX_SCENES_PER_CHUNK} scenes per chunk)`);
 
-      const words = script.split(/\s+/);
-      const wordsPerChunk = Math.ceil(words.length / chunks);
+      // Split script into segments that respect sentence boundaries
+      const scriptSegments = splitScriptIntoSegments(script, MAX_SCENES_PER_CHUNK * WORDS_PER_SCENE);
 
       const allScenes: Scene[] = [];
       const allCharacters: Character[] = [];
+      let currentSceneNumber = 1;
 
-      for (let i = 0; i < chunks; i++) {
-        const chunkStart = i * wordsPerChunk;
-        const chunkEnd = Math.min((i + 1) * wordsPerChunk, words.length);
-        const chunkScript = words.slice(chunkStart, chunkEnd).join(' ');
-        const chunkSceneCount = i === chunks - 1
-          ? totalScenes - (i * MAX_SCENES_PER_CHUNK) // Last chunk gets remainder
-          : MAX_SCENES_PER_CHUNK;
-        const startSceneNumber = i * MAX_SCENES_PER_CHUNK + 1;
+      for (let i = 0; i < scriptSegments.length; i++) {
+        const chunkScript = scriptSegments[i];
+        const chunkWordCount = countWords(chunkScript);
+        const chunkSceneCount = Math.ceil(chunkWordCount / WORDS_PER_SCENE);
 
-        console.log(`[Scene Analysis] Processing chunk ${i + 1}/${chunks}: ${chunkEnd - chunkStart} words, ${chunkSceneCount} scenes (starting at ${startSceneNumber})`);
-
-        // Get relevant scene briefs for this chunk
-        const chunkSceneBriefsContext = (narrativeContext as NarrativeContext)?.scene_briefs
-          ? (() => {
-              const relevantBriefs = (narrativeContext as NarrativeContext).scene_briefs.filter(
-                (b: SceneBrief) => b.scene_number >= startSceneNumber && b.scene_number < startSceneNumber + chunkSceneCount
-              );
-              if (relevantBriefs.length === 0) return sceneBriefsContext;
-              return `
-    // --- NARRATIVE CONTEXT (from pre-analysis) ---
-    Story Arc: ${(narrativeContext as NarrativeContext).story_arc}
-    Key Themes: ${(narrativeContext as NarrativeContext).key_themes?.join(', ')}
-
-    SCENE BRIEFS - Follow these focal elements for each scene:
-    ${relevantBriefs.map((b: SceneBrief) =>
-      `Scene ${b.scene_number}: "${b.focal_element}" (${b.emotional_beat}) - Layout: ${b.layout_type}${b.overlay_suggestion ? ` - Overlay: ${b.overlay_suggestion}` : ''}`
-    ).join('\n    ')}
-
-    IMPORTANT: Use the focal elements above as your guide. Each scene should have ONE focal element as specified.
-    `;
-            })()
-          : '';
+        console.log(`[Scene Analysis] Processing chunk ${i + 1}/${scriptSegments.length}: ${chunkWordCount} words, ${chunkSceneCount} scenes (starting at scene ${currentSceneNumber})`);
 
         const chunkResult = await generateScenesForChunk(
           openai,
           chunkScript,
           chunkSceneCount,
-          startSceneNumber,
-          chunkSceneBriefsContext,
-          visualMetaphors
+          currentSceneNumber,
+          styleGuide as StyleGuide | null
         );
 
         allScenes.push(...chunkResult.scenes);
@@ -339,8 +345,14 @@ export async function POST(request: NextRequest) {
           }
         });
 
+        // Update scene number for next chunk
+        currentSceneNumber += chunkResult.scenes.length;
+
         console.log(`[Scene Analysis] Chunk ${i + 1} complete: ${chunkResult.scenes.length} scenes generated`);
       }
+
+      // Sort all scenes by scene_number to ensure final order is correct
+      allScenes.sort((a, b) => a.scene_number - b.scene_number);
 
       console.log(`[Scene Analysis] Total scenes generated: ${allScenes.length} (expected: ${totalScenes})`);
 
@@ -358,8 +370,7 @@ export async function POST(request: NextRequest) {
       script,
       totalScenes,
       1,
-      sceneBriefsContext,
-      visualMetaphors
+      styleGuide as StyleGuide | null
     );
 
     console.log(`[Scene Analysis] Generated ${result.scenes.length} scenes (expected: ${totalScenes})`);

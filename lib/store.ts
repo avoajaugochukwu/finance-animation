@@ -44,9 +44,13 @@ export const useSessionStore = create<SessionStore>((set) => ({
   
   setScript: (script) => set({ script }),
 
-  setScenes: (scenes) => set({ scenes }),
-  
-  setStoryboardScenes: (scenes) => set({ storyboardScenes: scenes }),
+  setScenes: (scenes) => set({
+    scenes: [...scenes].sort((a, b) => a.scene_number - b.scene_number)
+  }),
+
+  setStoryboardScenes: (scenes) => set({
+    storyboardScenes: [...scenes].sort((a, b) => a.scene_number - b.scene_number)
+  }),
   
   updateStoryboardScene: (sceneNumber, updates) => set((state) => ({
     storyboardScenes: state.storyboardScenes.map(scene =>

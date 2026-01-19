@@ -197,24 +197,52 @@ export interface Scene {
 }
 
 // ============================================================================
-// NARRATIVE CONTEXT TYPES (Two-Stage Scene Intelligence)
+// STYLE GUIDE TYPES (Stage 1 - Visual Style & Character Intelligence)
 // ============================================================================
 
-export interface SceneBrief {
-  scene_number: number;
-  focal_element: string;        // ONE thing to show (e.g., "Max with trophy")
-  emotional_beat: string;       // e.g., "false confidence", "crushing realization"
-  visual_tone: 'triumphant' | 'defeated' | 'neutral' | 'chaotic' | 'calm';
-  narrative_role: string;       // e.g., "introduces Max's overconfidence"
-  connects_to?: number[];       // Scene numbers this visually rhymes with
-  layout_type: 'split' | 'overlay' | 'ui' | 'diagram' | 'character' | 'object';
-  overlay_suggestion?: string;  // For overlay layouts: what meme/image to use
+export interface CharacterManifest {
+  id: string;
+  name: string;
+  visual_description: string;       // e.g., "male stick figure, messy spiky hair, peach skin #FFDBAC"
+  personality_traits: string[];     // For expression guidance
+  signature_pose?: string;          // Optional default pose
 }
 
+export interface ColorPalette {
+  success_color: string;            // Hex for positive moments
+  failure_color: string;            // Hex for negative moments
+  neutral_colors: string[];         // Background/standard colors
+  usage_guidance: string;           // When to use which colors
+}
+
+export interface StyleGuide {
+  global_visual_style: string;      // e.g., "Cynical, high-energy whiteboard sketch"
+  character_manifest: CharacterManifest[];
+  color_palette: ColorPalette;
+  generated_at: Date;
+}
+
+// ============================================================================
+// DEPRECATED: Old Narrative Context Types (kept for backwards compatibility)
+// ============================================================================
+
+/** @deprecated Use StyleGuide instead */
+export interface SceneBrief {
+  scene_number: number;
+  focal_element: string;
+  emotional_beat: string;
+  visual_tone: 'triumphant' | 'defeated' | 'neutral' | 'chaotic' | 'calm';
+  narrative_role: string;
+  connects_to?: number[];
+  layout_type: 'split' | 'overlay' | 'ui' | 'diagram' | 'character' | 'object';
+  overlay_suggestion?: string;
+}
+
+/** @deprecated Use StyleGuide instead */
 export interface NarrativeContext {
-  story_arc: string;            // e.g., "rise and fall of overconfident trader"
-  key_themes: string[];         // e.g., ["Dunning-Kruger", "beginner's luck"]
-  emotional_progression: string[];  // e.g., ["confidence", "doubt", "despair", "acceptance"]
+  story_arc: string;
+  key_themes: string[];
+  emotional_progression: string[];
   scene_briefs: SceneBrief[];
   generated_at: Date;
 }
