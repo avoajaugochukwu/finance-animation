@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { Scene, Character, StyleGuide, CharacterManifest } from '@/lib/types';
+import { Scene, Character } from '@/lib/types';
 import { MAX_SCENES_PER_CHUNK } from '@/lib/config/development';
 import { countWords } from '@/lib/utils/word-count';
 
@@ -27,142 +27,60 @@ interface ChunkResult {
   scenes: Scene[];
 }
 
-// Build the system prompt for linear scene generation
+// Build the system prompt for linear scene generation - Casual Finance style hardcoded
 function buildSystemPrompt(
   chunkSceneCount: number,
-  styleGuide: StyleGuide | null,
   startSceneNumber: number
 ): string {
-  // Build character manifest context if available
-  const characterContext = styleGuide?.character_manifest?.length
-    ? `
-    // --- CHARACTER MANIFEST (Use these EXACT descriptions) ---
-    ${styleGuide.character_manifest.map((char: CharacterManifest) =>
-      `${char.name} (${char.id}): ${char.visual_description}
-       Personality: ${char.personality_traits.join(', ')}${char.signature_pose ? `\n       Default pose: ${char.signature_pose}` : ''}`
-    ).join('\n    ')}
+  return `You are a linear storyboard translator for a channel exactly like 'Casual Finance.'
 
-    IMPORTANT: When a character appears in a scene, use EXACTLY the visual_description above.
-    `
-    : '';
+YOUR GOLDEN RULES:
+LINEAR ONLY: Scene 1 = First words. Scene 2 = Next words. Never jump ahead.
+MAX IS THE DEFAULT: Use Max (male stick figure, messy hair, peach skin) for every scene unless a character like 'Agent' or 'TikTok Bro' is mentioned.
+LITERAL ILLUSTRATION: Do not be 'creative' with concepts. If the text says 'Eggs,' draw eggs. If the text says 'Vietnam flashback,' draw Max in a helmet. If the text says 'Palm tree,' draw a palm tree.
+NO CHARTS: Never draw a graph or chart unless the text says 'Market,' 'Data,' or 'S&P 500.'
+HUMOR THROUGH ABSURDITY: Use the 'Confidence = Abs' logic. If Max is 'disciplined,' show him with a military haircut. If he 'checked mortgage rates,' show him holding a giant calculator.
+CHUNK SIZE: 10-12 words per scene.
 
-  // Build color palette context if available
-  const colorContext = styleGuide?.color_palette
-    ? `
-    // --- COLOR PALETTE ---
-    - Success/Positive: ${styleGuide.color_palette.success_color}
-    - Failure/Negative: ${styleGuide.color_palette.failure_color}
-    - Neutral colors: ${styleGuide.color_palette.neutral_colors.join(', ')}
-    - Usage: ${styleGuide.color_palette.usage_guidance}
-    `
-    : `
-    // --- DEFAULT COLOR PALETTE ---
-    - Success/Charts UP: Market Green #00AD43
-    - Failure/Charts DOWN: Danger Red #FF0000
-    - Trophies/Achievements: Sarky Gold #FFD700
-    - Character skin: Peach #FFDBAC
-    - Background: Pure White #FFFFFF
-    `;
+=== EXAMPLE LIBRARY ===
+Use these as reference for the literal + absurd visual style:
 
-  const visualStyle = styleGuide?.global_visual_style
-    || 'Cynical Pop doodle (felt-tip marker on white paper)';
+| Script Snippet | Visual Prompt |
+|----------------|---------------|
+| "Meet Max. He works hard." | Max standing next to a gold trophy labeled "Good Guy." |
+| "Confidence at an all-time high." | Max with giant exaggerated six-pack abs and a smug face. |
+| "His strategy: Buy high, sell higher." | Text on screen: "Strategy" -> "Buy High, Sell Higher" with an arrow. |
+| "Risk management: Prayer." | Max kneeling on the floor with hands together in prayer. |
+| "Fast forward 3 months." | Large black arrow on screen with text "3 Months Later." |
+| "The Fed hikes rates." | Head of Jerome Powell on a "Salt Bae" body sprinkling red downward candles. |
+| "Googling how to divorce him." | A literal Google search bar with that text typed in. |
+| "Eating at No Malibu." | Max sitting at a table with a sign behind him that says "Nobu Malibu." |
+| "Looking for a job at Pei Wei." | Max looking sad in front of a sign that says "Pei Wei: Now Hiring." |
+| "The Market is Rigged!!" | Max yelling at a female stick figure (Eve). |
 
-  return `You are a TRANSLATOR, not a writer. Your job is to convert script segments into visual scenes SEQUENTIALLY.
+=== HERO CHARACTER ===
+Max: Male stick figure, messy spiky black hair, peach skin #FFDBAC on head/hands.
 
-    ================================================================================
-    🚨 GOLDEN RULE: STRICT LINEAR SEQUENCE 🚨
-    ================================================================================
+=== OUTPUT FORMAT ===
+Generate EXACTLY ${chunkSceneCount} scenes starting at scene ${startSceneNumber}.
+Each scene covers ~10-12 words from the script in STRICT order.
 
-    YOU MUST PROCESS THE SCRIPT LINEARLY.
-
-    - Scene ${startSceneNumber} = the FIRST words of this text segment
-    - Scene ${startSceneNumber + 1} = the NEXT ~10-15 words after that
-    - And so on...
-
-    You are STRICTLY FORBIDDEN from:
-    ❌ Jumping ahead in the script
-    ❌ Pulling characters/events from later in the script into early scenes
-    ❌ Reordering content for "better flow"
-    ❌ Adding characters who haven't been mentioned YET in the current snippet
-
-    If a character is not mentioned in the current ~10-15 word snippet,
-    they MUST NOT appear in the visual prompt for that scene.
-
-    ================================================================================
-
-    // --- VISUAL STYLE ---
-    ${visualStyle}
-
-    ${characterContext}
-    ${colorContext}
-
-    // --- RADICAL MINIMALISM (CRITICAL) ---
-    **ONE FOCAL ELEMENT PER SCENE. This is non-negotiable.**
-
-    1. If it's a character scene: ONLY the character (pose/expression tells the story)
-    2. If it's a chart scene: ONLY the chart (simple line, one color, one direction)
-    3. If it's an object scene: ONLY the object (trophy, wallet, phone)
-
-    **NO TEXT IN IMAGES:**
-    - No labels
-    - No arrows pointing at things
-    - No speech bubbles
-    - Let composition and color convey meaning
-
-    **CHARTS ARE SIMPLE:**
-    - One line going UP (success color) OR one line going DOWN (failure color)
-    - Never both in same chart
-    - No axis labels, no numbers, no grid lines
-
-    // --- LIST HANDLING ---
-    If the script lists items (e.g., "Paris, London, Tokyo" or "first, second, third"):
-    - Option A: Create ONE scene showing multiple elements in the EXACT order mentioned
-    - Option B: Create separate rapid-fire scenes for each item
-    But items must ALWAYS appear in their original script order. Never reorder.
-
-    // --- LAYOUT TYPES (6 options) ---
-    Assign layout_type to EVERY scene:
-    1. "character" - Just a character with expression/pose. No props, no background elements.
-    2. "object" - Single symbolic object. Trophy. Empty wallet. Phone. One thing only.
-    3. "split" - Before/after or expectation/reality contrast. Zig-zag divider.
-    4. "overlay" - Stick figure next to dashed placeholder box for meme/image insertion.
-    5. "ui" - Fake phone screen, app interface, search results. Single UI element.
-    6. "diagram" - Simple chart. ONE line, ONE direction.
-
-    // --- VISUAL PROMPT FORMAT ---
-    Keep prompts SHORT (30-50 words). Example:
-    ❌ BAD: "Max surrounded by flames, toy blocks labeled 'stocks', chart with arrows saying 'you fail', trophies everywhere"
-    ✅ GOOD: "Max with peach skin #FFDBAC, smug expression, holding golden trophy. Pure white background."
-
-    // --- YOUR TASK ---
-    1. Split the provided script segment into EXACTLY ${chunkSceneCount} scenes
-    2. Each scene should cover approximately 10-15 words from the script
-    3. Process the text IN ORDER - scene 1 is the beginning, scene 2 is next, etc.
-    4. The script_snippet for each scene MUST be the LITERAL text from that segment
-    5. Only include characters in a scene if they are mentioned in THAT scene's snippet
-
-    // --- CHARACTER IDENTIFICATION ---
-    - ONLY list characters that ACTUALLY appear in the script segment
-    - If no human characters are mentioned, return an empty characters array
-    - Use the character IDs from the manifest if provided
-    - Description should match the manifest or be EXACTLY 'male' or 'female'
-
-    Return a single JSON object:
+Return JSON:
+{
+  "characters": [
+    { "id": "char_max", "name": "Max", "description": "male stick figure, messy spiky black hair, peach skin #FFDBAC" }
+  ],
+  "scenes": [
     {
-      "characters": [
-        { "id": "char_1", "name": "Max", "description": "male" }
-      ],
-      "scenes": [
-        {
-          "scene_number": ${startSceneNumber},
-          "script_snippet": "The LITERAL text from this ~10-15 word segment of the script",
-          "visual_prompt": "SHORT prompt (30-50 words). ONE focal element. Must include 'pure white background'.",
-          "layout_type": "character" | "object" | "split" | "overlay" | "ui" | "diagram",
-          "external_asset_suggestion": "Description of meme/image for overlay" | null,
-          "characters": ["char_1"]
-        }
-      ]
-    }`;
+      "scene_number": ${startSceneNumber},
+      "script_snippet": "LITERAL text from this ~10-12 word segment",
+      "visual_prompt": "SHORT prompt (30-50 words). ONE focal element. Pure white background.",
+      "layout_type": "character" | "object" | "split" | "overlay" | "ui" | "diagram",
+      "external_asset_suggestion": null,
+      "characters": ["char_max"]
+    }
+  ]
+}`;
 }
 
 // Split script into sentence-respecting chunks
@@ -208,10 +126,9 @@ async function generateScenesForChunk(
   chunkScript: string,
   chunkSceneCount: number,
   startSceneNumber: number,
-  styleGuide: StyleGuide | null,
   maxRetries: number = 2
 ): Promise<ChunkResult> {
-  const systemPrompt = buildSystemPrompt(chunkSceneCount, styleGuide, startSceneNumber);
+  const systemPrompt = buildSystemPrompt(chunkSceneCount, startSceneNumber);
 
   let lastError: Error | null = null;
 
@@ -285,7 +202,7 @@ async function generateScenesForChunk(
 
 export async function POST(request: NextRequest) {
   try {
-    const { script, styleGuide } = await request.json();
+    const { script } = await request.json();
 
     if (!script) {
       return NextResponse.json(
@@ -299,9 +216,6 @@ export async function POST(request: NextRequest) {
     const totalScenes = Math.ceil(wordCount / WORDS_PER_SCENE);
 
     console.log(`[Scene Analysis] Script: ${wordCount} words, ${totalScenes} scenes expected (~${WORDS_PER_SCENE} words/scene)`);
-    if (styleGuide) {
-      console.log(`[Scene Analysis] Using style guide with ${styleGuide.character_manifest?.length || 0} characters`);
-    }
 
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY || '',
@@ -332,8 +246,7 @@ export async function POST(request: NextRequest) {
           openai,
           chunkScript,
           chunkSceneCount,
-          currentSceneNumber,
-          styleGuide as StyleGuide | null
+          currentSceneNumber
         );
 
         allScenes.push(...chunkResult.scenes);
@@ -369,8 +282,7 @@ export async function POST(request: NextRequest) {
       openai,
       script,
       totalScenes,
-      1,
-      styleGuide as StyleGuide | null
+      1
     );
 
     console.log(`[Scene Analysis] Generated ${result.scenes.length} scenes (expected: ${totalScenes})`);

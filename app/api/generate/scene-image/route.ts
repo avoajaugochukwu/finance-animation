@@ -85,24 +85,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Add random composition directive for variety in the cynical style
-    const compositionDirectives = [
-      "as if hastily drawn on a whiteboard during a lecture",
-      "like a diagram from a cynical textbook",
-      "sketched quickly on a napkin",
-      "drawn by someone explaining something obvious",
-      "like a low-effort meme template"
-    ];
-    const randomDirective = compositionDirectives[Math.floor(Math.random() * compositionDirectives.length)];
-
     // Get layout directive based on scene layout type
     const sceneWithLayout = scene as Scene;
     const layoutDirective = getLayoutDirective(sceneWithLayout.layout_type);
 
-    // Apply Cynical Pop style to the prompt
-    const styledPrompt = `${basePrompt}.
+    // Apply Casual Finance style to the prompt
+    const styledPrompt = `A crude, minimalist felt-tip marker doodle on a pure white background. Simple black line art. No shading. No 3D. No gradients. Characters are stick figures with peach skin fill (#FFDBAC) on heads and hands. 16:9 aspect ratio. Matches the style of 'Casual Finance' YouTube channel exactly.
 
-Style: Cynical minimalist doodle, ${randomDirective}. Hand-drawn felt-tip marker. Characters MUST have peach skin-tone fills (#FFDBAC). Use high-saturation Market Green (#00AD43) for success/charts going up. Use Danger Red (#FF0000) for failure/debt/charts going down. Use Sarky Gold (#FFD700) sparingly for trophies. Pure white (#FFFFFF) background - NO exceptions. ${layoutDirective}Single focal element only. NO text, NO labels, NO arrows. 16:9 aspect ratio.`;
+${layoutDirective}
+
+Scene: ${basePrompt}`;
     
     let result: FalImageResult;
     let apiRequest: Record<string, unknown>;
